@@ -1,0 +1,91 @@
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <cmath>
+#include <cuda_runtime.h>
+#include <npp.h>
+#include <nppi.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+int main(int argc, char** argv) {
+    if (argc < 5) {
+        std::cout << "Usage: " << argv[0] << " <input.png> <output.png> <angle_deg> <num_rotations>\n";
+        std::cout << "Example: ./imageRotationNPP data/Lena.png data/rotated_Lena.png 45 100\n";
+        return 1;
+    }
+
+    std::string inputPath = argv[1];
+    std::string outputPath = argv[2];
+    float angleDeg = std::stof(argv[3]);
+    int numRotations = std::stoi(argv[4]);
+
+    // Load image (force RGB)
+    int width, height, channels;
+    unsigned char* h_image = stbi_load(inputPath.c_str(), &width, &height, &channels, 3);
+    if (!h_image) {
+        std::cerr << "Error: Could not load image " << inputPath << std::endl;
+        return 1;
+    }
+
+    std::cout << "✅ Loaded " << width << "x" << height << " RGB image (Lena.png)\n";
+    std::cout << "✅ Processing " << numRotations << " rotations on GPU using NPP...\n";
+
+    // Calculate rotated image size (bounding box)
+    double rad = angleDeg * M_PI / 180.0;
+    double c = std::cos(rad);
+    double s = std::sin(rad);
+    int dstWidth = (int)std::ceil(std::abs(width * c) + std::abs(height * s));
+    int dstHeight = (int)std::ceil(std::abs(width * s) + std::abs(height * c));
+
+    int srcStep = width * 3;
+    int dstStep = dstWidth * 3;
+
+    // GPU memory
+    Npp8u *d_src = nullptr, *d_dst = nullptr;
+    cudaMalloc((void**)&d_src, (size_t)height * srcStep);
+    cudaMalloc((void**)&d_dst, (size_t)dstHeight * dstStep);
+
+    cudaMemcpy(d_src, h_image, (size_t)height * srcStep, cudaMemcpyHostToDevice);
+
+    // Show GPU being used
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    std::cout << "✅ Using GPU: " << prop.name << std::endl;
+
+    // Timing + batch rotation on GPU
+    auto start = std::chrono::high_resolution_clock::now();
+
+    NppiRect oSrcROI = {0, 0, width, height};
+    NppiRect oDstROI = {0, 0, dstWidth, dstHeight};
+
+    for (int i = 0; i < numRotations; ++i) {
+        nppiRotate_8u_C3R(d_src, {width, height}, srcStep, oSrcROI,
+                          d_dst, dstStep, oDstROI,
+                          angleDeg, 0.0, 0.0,
+                          NPPI_INTER_LINEAR);
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "✅ Finished " << numRotations << " GPU rotations in " << duration.count() << " ms\n";
+
+    // Copy last rotated image back and save
+    unsigned char* h_rotated = new unsigned char[(size_t)dstHeight * dstStep];
+    cudaMemcpy(h_rotated, d_dst, (size_t)dstHeight * dstStep, cudaMemcpyDeviceToHost);
+    stbi_write_png(outputPath.c_str(), dstWidth, dstHeight, 3, h_rotated, dstStep);
+
+    std::cout << "✅ Saved example output: " << outputPath << std::endl;
+
+    // Cleanup
+    cudaFree(d_src);
+    cudaFree(d_dst);
+    delete[] h_rotated;
+    stbi_image_free(h_image);
+
+    return 0;
+}

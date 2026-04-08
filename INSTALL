@@ -1,0 +1,8 @@
+Linux / Google Colab (CUDA 11+ or 12+):
+
+1. Install CUDA (already present in Colab)
+2. make
+3. chmod +x run.sh
+4. ./run.sh
+
+The program will process 100 rotations on the GPU and save the result.

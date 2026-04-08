@@ -1,0 +1,6 @@
+Starting GPU Batch Image Rotation - 100 images
+✅ Loaded 1666x1250 RGB image (data/Lena.png)
+✅ Processing 100 rotations on GPU using NPP...
+✅ Finished 100 GPU rotations in 61467 ms
+✅ Successfully saved all 100 rotated images!
+✅ Done! Processed 100 rotations on GPU
